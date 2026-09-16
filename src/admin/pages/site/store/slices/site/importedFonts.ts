@@ -2,7 +2,7 @@ import { nanoid } from 'nanoid'
 import type { Draft } from 'mutative'
 import type { SiteDocument } from '@core/page-tree'
 import type { ImportFontFamily, ImportFontToken } from '@core/siteImport'
-import type { FontEntry, FontFile, FontToken } from '@core/fonts'
+import type { FontEntry, FontToken } from '@core/fonts'
 import {
   makeUniqueFontTokenVariable,
   normalizeFontTokenVariable,
@@ -28,7 +28,7 @@ export function addImportedFonts(
     if (font.files.length === 0) continue
     const id = nanoid()
     const now = Date.now()
-    const files: FontFile[] = font.files.map((f) => ({
+    const files = font.files.map((f) => ({
       variant: f.variant,
       subset: 'latin',
       path: f.src,

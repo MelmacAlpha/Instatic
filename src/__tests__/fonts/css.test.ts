@@ -22,6 +22,26 @@ const inter: FontEntry = {
   updatedAt: 0,
 }
 
+const interVariable: FontEntry = {
+  id: 'f-variable',
+  source: 'custom',
+  family: 'Inter Variable',
+  variants: [],
+  subsets: ['latin'],
+  files: [
+    {
+      variable: true,
+      weightMin: 100,
+      weightMax: 900,
+      subset: 'latin',
+      path: '/uploads/media/inter-variable.woff2',
+      format: 'woff2',
+    },
+  ],
+  createdAt: 0,
+  updatedAt: 0,
+}
+
 const malicious: FontEntry = {
   // Attempts to escape the @font-face block via embedded `</style>`,
   // breakouts in family name, and an off-brand path. The generator must
@@ -50,6 +70,14 @@ describe('generateSiteFontsCss', () => {
     expect(css).toContain('font-weight: 700;')
     expect(css).toContain('font-style: italic;')
     expect(css).toContain('url("/uploads/fonts/inter/400-latin.woff2")')
+  })
+
+  it('emits the configured weight range for a variable font', () => {
+    const css = generateSiteFontsCss({ items: [interVariable] })
+    expect(css.match(/@font-face/g)?.length ?? 0).toBe(1)
+    expect(css).toContain('font-weight: 100 900;')
+    expect(css).toContain('font-style: normal;')
+    expect(css).toContain('url("/uploads/media/inter-variable.woff2")')
   })
 
   it('skips files served from outside /uploads/fonts/', () => {

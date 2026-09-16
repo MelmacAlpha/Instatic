@@ -506,10 +506,20 @@ export function fontFormatForMime(mimeType: string): FontFileFormat | null {
 /**
  * One resolved custom-font file — the media asset has already been looked up by
  * the handler so the `path` (public URL) and `format` (from the sniffed MIME)
- * are server-trusted, and the requested `variant` validated.
+ * are server-trusted, and the requested variant or weight range validated.
  */
-export interface ResolvedCustomFontFile {
+export type ResolvedCustomFontFile = {
   variant: string
+  format: FontFileFormat
+  /** Public URL of the uploaded media asset (e.g. `/uploads/media/abc.woff2`). */
+  path: string
+  /** The backing media asset id — kept on the FontFile so the entry survives
+   *  storage migration and external URLs are trusted at the CSS boundary. */
+  mediaAssetId: string
+} | {
+  variable: true
+  weightMin: number
+  weightMax: number
   format: FontFileFormat
   /** Public URL of the uploaded media asset (e.g. `/uploads/media/abc.woff2`). */
   path: string
@@ -537,14 +547,18 @@ export function assembleCustomFontEntry(input: {
   }
 
   const files: FontFile[] = input.files.map((f) => ({
-    variant: f.variant,
     subset: 'latin',
     path: f.path,
     format: f.format,
     mediaAssetId: f.mediaAssetId,
+    ...('variable' in f
+      ? { variable: true as const, weightMin: f.weightMin, weightMax: f.weightMax }
+      : { variant: f.variant }),
   }))
 
-  const variants = Array.from(new Set(files.map((f) => f.variant))).sort(compareVariants)
+  const variants = Array.from(new Set(
+    files.flatMap((file) => 'variant' in file ? [file.variant] : []),
+  )).sort(compareVariants)
 
   const now = Date.now()
   return {

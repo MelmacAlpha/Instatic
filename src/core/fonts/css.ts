@@ -13,7 +13,7 @@
  */
 
 import type { FontEntry, FontFile, FontFileFormat, SiteFontsSettings } from './schemas'
-import { isSafeFontSrc } from './schemas'
+import { isSafeFontSrc, isValidFontWeightRange, isVariableFontFile } from './schemas'
 import { parseVariant } from './variants'
 import {
   fontTokenCssVariable,
@@ -73,9 +73,9 @@ function escapeCssUnicodeRange(value: string): string | null {
 }
 
 /**
- * Build a single `@font-face` rule for one slice (variant + optional
- * unicode-range). Returns `null` for unparseable variants — callers should
- * skip them.
+ * Build a single `@font-face` rule for one file (variant or variable weight
+ * range + optional unicode-range). Returns `null` for unparseable variants —
+ * callers should skip them.
  *
  * When `unicodeRange` is provided, the rule pins the slice to that range so
  * the browser's font loader fetches it only when text in that range is used.
@@ -85,23 +85,27 @@ function escapeCssUnicodeRange(value: string): string | null {
  */
 function fontFaceRule(
   family: string,
-  variant: string,
-  urlPath: string,
-  format: FontFileFormat,
-  unicodeRange?: string,
+  file: FontFile,
 ): string | null {
-  const parsed = parseVariant(variant)
-  if (!parsed) return null
+  const parsed = 'variant' in file ? parseVariant(file.variant) : null
+  if (!parsed && !isVariableFontFile(file)) return null
+  if (isVariableFontFile(file) && !isValidFontWeightRange(file.weightMin, file.weightMax)) {
+    return null
+  }
+  const fontStyle = parsed?.italic ? 'italic' : 'normal'
+  const fontWeight = isVariableFontFile(file)
+    ? `${file.weightMin} ${file.weightMax}`
+    : String(parsed?.weight)
   const lines = [
     `@font-face {`,
     `  font-family: "${escapeCssString(family)}";`,
-    `  font-style: ${parsed.italic ? 'italic' : 'normal'};`,
-    `  font-weight: ${parsed.weight};`,
+    `  font-style: ${fontStyle};`,
+    `  font-weight: ${fontWeight};`,
     `  font-display: swap;`,
-    `  src: url("${escapeCssUrl(urlPath)}") format("${CSS_FORMAT_TOKEN[format]}");`,
+    `  src: url("${escapeCssUrl(file.path)}") format("${CSS_FORMAT_TOKEN[file.format]}");`,
   ]
-  if (unicodeRange) {
-    const safe = escapeCssUnicodeRange(unicodeRange)
+  if (file.unicodeRange) {
+    const safe = escapeCssUnicodeRange(file.unicodeRange)
     if (safe) lines.push(`  unicode-range: ${safe};`)
   }
   lines.push(`}`)
@@ -128,7 +132,7 @@ export function generateSiteFontsCss(
       // HTML. Self-hosted /uploads/ paths and media-backed entries pass;
       // arbitrary third-party URLs are skipped (no-CDN guarantee).
       if (!isSafeFontSrc(file.path, file.mediaAssetId)) continue
-      const rule = fontFaceRule(entry.family, file.variant, file.path, file.format, file.unicodeRange)
+      const rule = fontFaceRule(entry.family, file)
       if (rule) blocks.push(rule)
     }
   }

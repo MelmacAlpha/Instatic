@@ -23,6 +23,24 @@ const inter: FontEntry = {
   updatedAt: 1,
 }
 
+const interVariable: FontEntry = {
+  id: 'font-inter-variable',
+  source: 'custom',
+  family: 'Inter Variable',
+  variants: [],
+  subsets: ['latin'],
+  files: [{
+    variable: true,
+    weightMin: 100,
+    weightMax: 900,
+    subset: 'latin',
+    path: '/uploads/media/inter-variable.woff2',
+    format: 'woff2',
+  }],
+  createdAt: 1,
+  updatedAt: 1,
+}
+
 beforeEach(() => {
   setEditorPreference('propertiesSectionsExpanded', true)
   useEditorStore.setState({
@@ -65,6 +83,39 @@ describe('font weight style options', () => {
     renderFontWeightRow({})
 
     expect(fontWeightOptionValues()).toEqual(['', '300', '400', '700', '900'])
+  })
+
+  it('uses a numeric range input for a variable font', () => {
+    useEditorStore.setState({
+      site: makeSite({
+        settings: {
+          shortcuts: {},
+          fonts: {
+            items: [interVariable],
+            tokens: [{
+              id: 'token-variable',
+              name: 'Variable',
+              variable: 'font-variable',
+              familyId: interVariable.id,
+              fallback: 'sans-serif',
+              order: 0,
+              createdAt: 1,
+              updatedAt: 1,
+            }],
+          },
+        },
+      }),
+    } as Parameters<typeof useEditorStore.setState>[0])
+
+    renderFontWeightRow({ fontFamily: 'var(--font-variable)' })
+
+    const row = screen.getByTestId('css-property-row-fontWeight')
+    const input = row.querySelector('input[type="number"]')
+    expect(input).toBeInstanceOf(HTMLInputElement)
+    expect(input?.getAttribute('min')).toBe('100')
+    expect(input?.getAttribute('max')).toBe('900')
+    expect(input?.getAttribute('step')).toBe('1')
+    expect(row.querySelector('select')).toBeNull()
   })
 })
 

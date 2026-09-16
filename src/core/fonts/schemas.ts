@@ -93,12 +93,14 @@ function isSafeFontSrc(path: string, mediaAssetId?: string): boolean {
  * preserve every slice as its own `FontFile`. `unicodeRange` is optional;
  * custom uploads and imported faces typically have none.
  *
+ * A static face carries its canonical `variant`. A variable weight face carries
+ * `variable: true` plus its inclusive `weightMin`/`weightMax` axis bounds.
+ *
  * `mediaAssetId` is set for media-backed custom / imported fonts (so the entry
  * survives a storage-adapter migration and external URLs are trusted). Google
  * installs leave it unset.
  */
-const FontFileSchema = Type.Object({
-  variant: Type.String({ minLength: 1 }),
+const FontFileBaseSchema = Type.Object({
   subset: Type.String({ minLength: 1 }),
   path: Type.String({ minLength: 1 }),
   format: FontFileFormatSchema,
@@ -106,7 +108,36 @@ const FontFileSchema = Type.Object({
   mediaAssetId: Type.Optional(Type.String({ minLength: 1 })),
 })
 
+const StaticFontFileSchema = Type.Intersect([
+  FontFileBaseSchema,
+  Type.Object({ variant: Type.String({ minLength: 1 }) }),
+])
+
+export const VariableFontFileSchema = Type.Intersect([
+  FontFileBaseSchema,
+  Type.Object({
+    variable: Type.Literal(true),
+    weightMin: Type.Number({ minimum: 1, maximum: 1000 }),
+    weightMax: Type.Number({ minimum: 1, maximum: 1000 }),
+  }),
+])
+
+const FontFileSchema = Type.Union([StaticFontFileSchema, VariableFontFileSchema])
+
 export type FontFile = Static<typeof FontFileSchema>
+export type VariableFontFile = Static<typeof VariableFontFileSchema>
+
+export function isVariableFontFile(file: FontFile): file is VariableFontFile {
+  return 'variable' in file && file.variable === true
+}
+
+export function isValidFontWeightRange(weightMin: number, weightMax: number): boolean {
+  return Number.isFinite(weightMin)
+    && Number.isFinite(weightMax)
+    && weightMin >= 1
+    && weightMax <= 1000
+    && weightMin <= weightMax
+}
 
 /**
  * A self-hosted `/uploads/` path must carry the extension matching its declared
@@ -136,6 +167,9 @@ function isSafeUnicodeRange(range: string): boolean {
 function checkFontFile(value: unknown): value is FontFile {
   if (!compiledCheck(FontFileSchema, value)) return false
   const file = value as FontFile
+  if (isVariableFontFile(file) && !isValidFontWeightRange(file.weightMin, file.weightMax)) {
+    return false
+  }
   if (!isSafeFontSrc(file.path, file.mediaAssetId)) return false
   if (!fontPathMatchesFormat(file)) return false
   if (file.unicodeRange != null && !isSafeUnicodeRange(file.unicodeRange)) {
@@ -170,6 +204,20 @@ export const FontEntrySchema = Type.Object({
 })
 
 export type FontEntry = Static<typeof FontEntrySchema>
+
+export type VariableFontWeightRange = Pick<VariableFontFile, 'weightMin' | 'weightMax'>
+
+/** Return the combined weight axis range for an entry with variable files. */
+export function variableFontWeightRangeForEntry(
+  entry: FontEntry,
+): VariableFontWeightRange | undefined {
+  const variableFiles = entry.files.filter(isVariableFontFile)
+  if (variableFiles.length === 0) return undefined
+  return {
+    weightMin: Math.min(...variableFiles.map((file) => file.weightMin)),
+    weightMax: Math.max(...variableFiles.map((file) => file.weightMax)),
+  }
+}
 
 /**
  * Tolerant parser: silently filters out invalid `files` entries and provides

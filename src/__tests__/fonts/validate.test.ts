@@ -56,6 +56,70 @@ describe('validateSite — fonts', () => {
     expect(site.settings.fonts?.items[0].files[0].path).toBe('/uploads/fonts/inter/400-latin.woff2')
   })
 
+  it('preserves a valid variable font weight range', () => {
+    const site = validateSite(baseSite({
+      settings: {
+        colorTokens: {},
+        shortcuts: {},
+        fonts: {
+          items: [{
+            id: 'f-variable',
+            source: 'custom',
+            family: 'Inter Variable',
+            variants: [],
+            subsets: ['latin'],
+            files: [{
+              variable: true,
+              weightMin: 100,
+              weightMax: 900,
+              subset: 'latin',
+              path: '/uploads/media/inter-variable.woff2',
+              format: 'woff2',
+            }],
+            createdAt: 1,
+            updatedAt: 2,
+          }],
+        },
+      },
+    }))
+
+    expect(site.settings.fonts?.items[0].files[0]).toMatchObject({
+      variable: true,
+      weightMin: 100,
+      weightMax: 900,
+    })
+  })
+
+  it('drops a variable font whose minimum exceeds its maximum', () => {
+    const site = validateSite(baseSite({
+      settings: {
+        colorTokens: {},
+        shortcuts: {},
+        fonts: {
+          items: [{
+            id: 'f-variable',
+            source: 'custom',
+            family: 'Inter Variable',
+            variants: [],
+            subsets: ['latin'],
+            files: [{
+              variable: true,
+              weightMin: 900,
+              weightMax: 100,
+              subset: 'latin',
+              path: '/uploads/media/inter-variable.woff2',
+              format: 'woff2',
+            }],
+            createdAt: 1,
+            updatedAt: 2,
+          }],
+        },
+      },
+    }))
+
+    expect(site.settings.fonts?.items[0].files).toHaveLength(0)
+  })
+
   it('drops files served from outside /uploads/fonts/', () => {
     const site = validateSite(baseSite({
       settings: {

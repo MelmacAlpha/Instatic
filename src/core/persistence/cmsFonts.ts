@@ -84,9 +84,17 @@ export async function installCmsGoogleFont(
   return payload.font
 }
 
-interface RegisterCustomFontRequest {
+type RegisterCustomFontRequest = {
   family: string
-  files: { mediaAssetId: string; variant: string }[]
+  files: Array<{
+    mediaAssetId: string
+    variant: string
+  } | {
+    mediaAssetId: string
+    variable: true
+    weightMin: number
+    weightMax: number
+  }>
 }
 
 /**

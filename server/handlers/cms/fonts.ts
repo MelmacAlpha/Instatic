@@ -102,10 +102,18 @@ async function handleCustomFont(req: Request, db: DbClient): Promise<Response> {
 
   const CustomFontBodySchema = Type.Object({
     family: Type.String(),
-    files: Type.Array(Type.Object({
-      mediaAssetId: Type.String(),
-      variant: Type.String(),
-    })),
+    files: Type.Array(Type.Union([
+      Type.Object({
+        mediaAssetId: Type.String(),
+        variant: Type.String(),
+      }),
+      Type.Object({
+        mediaAssetId: Type.String(),
+        variable: Type.Literal(true),
+        weightMin: Type.Number({ minimum: 1, maximum: 1000 }),
+        weightMax: Type.Number({ minimum: 1, maximum: 1000 }),
+      }),
+    ])),
   })
   const body = await readValidatedBody(req, CustomFontBodySchema)
   if (!body) return badRequest('Invalid request body')
@@ -117,13 +125,17 @@ async function handleCustomFont(req: Request, db: DbClient): Promise<Response> {
 
   // Resolve every requested file: the media asset must exist and be a font
   // MIME; the format is derived from the SNIFFED MIME (server-trusted), never
-  // from the client. The variant must parse to a canonical weight/style.
+  // from the client. The variant or variable weight range is validated here.
   const resolved: ResolvedCustomFontFile[] = []
   for (const file of body.files) {
-    const { mediaAssetId, variant } = file
+    const { mediaAssetId } = file
     if (!mediaAssetId) return badRequest('Each font file needs a mediaAssetId')
-    if (!parseVariant(variant)) {
-      return badRequest(`Invalid font variant: "${variant}"`)
+    if ('variant' in file) {
+      if (!parseVariant(file.variant)) {
+        return badRequest(`Invalid font variant: "${file.variant}"`)
+      }
+    } else if (file.weightMin > file.weightMax) {
+      return badRequest('Variable font weight minimum must not exceed its maximum')
     }
 
     const asset = await getMediaAsset(db, mediaAssetId)
@@ -132,7 +144,16 @@ async function handleCustomFont(req: Request, db: DbClient): Promise<Response> {
     if (!format) {
       return badRequest(`Media asset ${mediaAssetId} is not a font (${asset.mimeType})`)
     }
-    resolved.push({ variant, format, path: asset.publicPath, mediaAssetId })
+    resolved.push('variant' in file
+      ? { variant: file.variant, format, path: asset.publicPath, mediaAssetId }
+      : {
+          variable: true,
+          weightMin: file.weightMin,
+          weightMax: file.weightMax,
+          format,
+          path: asset.publicPath,
+          mediaAssetId,
+        })
   }
 
   try {

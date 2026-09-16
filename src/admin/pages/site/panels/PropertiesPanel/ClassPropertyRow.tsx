@@ -19,6 +19,7 @@ import { ColorControl } from '@site/property-controls/ColorControl'
 import { SelectControl } from '@site/property-controls/SelectControl'
 import { BackgroundImageControl } from '@site/property-controls/BackgroundImageControl'
 import { FontFamilyControl } from '@site/property-controls/FontFamilyControl'
+import { FontWeightControl } from '@site/property-controls/FontWeightControl'
 import { useEditorStore } from '@site/store/store'
 import { ControlRow } from '@ui/components/ControlRow'
 import { TokenAwareInput } from '@site/property-controls/TokenAwareInput'
@@ -37,7 +38,7 @@ import {
   cssPropertyLabel,
   NUMBER_TYPED_PROPS,
 } from './cssControlTypes'
-import { getFontWeightOptions } from './fontWeightOptions'
+import { getFontWeightOptions, getVariableFontWeightRange } from './fontWeightOptions'
 import styles from './ClassPropertyRow.module.css'
 
 // ---------------------------------------------------------------------------
@@ -80,6 +81,9 @@ export function ClassPropertyRow({
   const label = cssPropertyLabel(String(property))
   const placeholderText = placeholder !== undefined ? String(placeholder) : undefined
   const fonts = useEditorStore((state) => state.site?.settings.fonts ?? null)
+  const variableWeightRange = property === 'fontWeight'
+    ? getVariableFontWeightRange(fontFamilyValue, fonts)
+    : undefined
   const isNumberTyped = NUMBER_TYPED_PROPS.has(property)
   // Numeric CSS values are persisted as numbers, but their text fields need
   // to retain lexical editing states such as `0.`, `-`, and `1e`. `null`
@@ -197,6 +201,18 @@ export function ClassPropertyRow({
         label={label}
         onPreview={onPreview ? (v) => handleControlPreview(String(property), v) : undefined}
         onClearPreview={onClearPreview}
+      />
+    )
+  } else if (variableWeightRange) {
+    control = (
+      <FontWeightControl
+        propKey={String(property)}
+        value={String(value ?? '')}
+        placeholder={placeholderText}
+        min={variableWeightRange.weightMin}
+        max={variableWeightRange.weightMax}
+        onChange={handleControlChange}
+        label={label}
       />
     )
   } else if (tokenSource) {

@@ -7,14 +7,14 @@
  *
  *   1. Name the family (free text, deduped against installed families).
  *   2. Pick one or more font assets (`font/*`) already in the media library.
- *      Each picked file gets a weight + italic variant (a font file is one
- *      `(weight, style)` face), defaulted from its filename.
+ *      Each picked file can be a static `(weight, style)` face or a variable
+ *      weight face with a configured range.
  *   3. Need a file that isn't in the library yet? "Upload font file" runs it
  *      through the media route (`uploadCmsMediaAsset`) — magic-byte sniffed,
  *      server-chosen extension — then it appears in the list, auto-selected.
  *   4. A live preview renders the family + a pangram in the picked faces via a
  *      transient `@font-face` block — editor session only, never published.
- *   5. Install posts `{ family, files: [{ mediaAssetId, variant }] }` to
+ *   5. Install posts the selected static variants or variable weight ranges to
  *      `/fonts/custom`; the server resolves each asset to a trusted
  *      `(path, format)` and returns a `FontEntry` to merge into site settings.
  *
@@ -71,17 +71,25 @@ const WEIGHT_OPTIONS = [
 
 const DEFAULT_PREVIEW_TEXT = 'The quick brown fox jumps over the lazy dog'
 
-/** The chosen variant for one selected media asset. */
-interface PickedVariant {
+interface PickedStaticVariant {
+  kind: 'static'
   weight: number
   italic: boolean
 }
+
+interface PickedVariableVariant {
+  kind: 'variable'
+  weightMin: number
+  weightMax: number
+}
+
+type PickedVariant = PickedStaticVariant | PickedVariableVariant
 
 /**
  * Guess a sensible (weight, italic) default from a font filename so the user
  * usually doesn't have to touch the pickers. Falls back to Regular 400.
  */
-function guessVariantFromName(filename: string): PickedVariant {
+function guessVariantFromName(filename: string): PickedStaticVariant {
   const lower = filename.toLowerCase()
   const italic = /italic|oblique/.test(lower)
   let weight = 400
@@ -93,7 +101,7 @@ function guessVariantFromName(filename: string): PickedVariant {
   else if (/extrabold|ultrabold/.test(lower)) weight = 800
   else if (/black|heavy/.test(lower)) weight = 900
   else if (/bold/.test(lower)) weight = 700
-  return { weight, italic }
+  return { kind: 'static', weight, italic }
 }
 
 function cssString(value: string): string {
@@ -110,6 +118,9 @@ function displayFontFilename(filename: string): string {
 }
 
 function variantLabel(variant: PickedVariant): string {
+  if (variant.kind === 'variable') {
+    return `Variable ${variant.weightMin}–${variant.weightMax}`
+  }
   const option = WEIGHT_OPTIONS.find((item) => item.value === String(variant.weight))
   const label = option?.label ?? `Weight ${variant.weight}`
   return variant.italic ? `${label} Italic` : label
@@ -117,7 +128,7 @@ function variantLabel(variant: PickedVariant): string {
 
 /**
  * Seed the picked-variant map from an entry being edited: each media-backed
- * file becomes one selected `(weight, italic)` face keyed by its asset id.
+ * file becomes one selected static or variable face keyed by its asset id.
  * Files without a `mediaAssetId` (none, for custom fonts) are skipped.
  */
 function pickedFromEntry(entry: FontEntry | undefined): Record<string, PickedVariant> {
@@ -125,7 +136,9 @@ function pickedFromEntry(entry: FontEntry | undefined): Record<string, PickedVar
   const init: Record<string, PickedVariant> = {}
   for (const file of entry.files) {
     if (!file.mediaAssetId) continue
-    init[file.mediaAssetId] = parseVariant(file.variant) ?? { weight: 400, italic: false }
+    init[file.mediaAssetId] = 'variable' in file
+      ? { kind: 'variable', weightMin: file.weightMin, weightMax: file.weightMax }
+      : { kind: 'static', ...(parseVariant(file.variant) ?? { weight: 400, italic: false }) }
   }
   return init
 }
@@ -193,10 +206,17 @@ async function installCustomFont(
   try {
     const entry = await registerCustomFont({
       family: trimmedFamily,
-      files: pickedIds.map((id) => ({
-        mediaAssetId: id,
-        variant: formatVariant(picked[id]),
-      })),
+      files: pickedIds.map((id) => {
+        const variant = picked[id]
+        return variant.kind === 'variable'
+          ? {
+              mediaAssetId: id,
+              variable: true as const,
+              weightMin: variant.weightMin,
+              weightMax: variant.weightMax,
+            }
+          : { mediaAssetId: id, variant: formatVariant(variant) }
+      }),
     })
     onInstalled(entry)
   } catch (err) {
@@ -234,6 +254,10 @@ export function AddCustomFontDialog({
 
   const fontAssets = (assets ?? []).filter((a) => a.mimeType.startsWith('font/'))
   const pickedIds = Object.keys(picked)
+  const hasInvalidVariableRange = pickedIds.some((id) => {
+    const variant = picked[id]
+    return variant?.kind === 'variable' && variant.weightMin > variant.weightMax
+  })
 
   // Load the media library once on mount; we filter to font assets in render.
   useEffect(() => {
@@ -265,7 +289,11 @@ export function AddCustomFontDialog({
       .flatMap(([id, variant]) => {
         const asset = byId.get(id)
         if (!asset) return []
-        return [`@font-face { font-family: ${cssString(previewFamily)}; font-weight: ${variant.weight}; font-style: ${variant.italic ? 'italic' : 'normal'}; font-display: swap; src: url(${cssString(asset.publicPath)}); }`]
+        const weight = variant.kind === 'variable'
+          ? `${variant.weightMin} ${variant.weightMax}`
+          : String(variant.weight)
+        const style = variant.kind === 'static' && variant.italic ? 'italic' : 'normal'
+        return [`@font-face { font-family: ${cssString(previewFamily)}; font-weight: ${weight}; font-style: ${style}; font-display: swap; src: url(${cssString(asset.publicPath)}); }`]
       })
     const faces = [...assetFaces, ...pickedFaces].join('\n')
 
@@ -278,8 +306,33 @@ export function AddCustomFontDialog({
     }
   }, [picked, assets, previewFamily])
 
-  function updateVariant(id: string, patch: Partial<PickedVariant>) {
-    setPicked((prev) => (prev[id] ? { ...prev, [id]: { ...prev[id], ...patch } } : prev))
+  function updateStaticVariant(id: string, patch: Partial<PickedStaticVariant>) {
+    setPicked((prev) => {
+      const current = prev[id]
+      if (!current || current.kind !== 'static') return prev
+      return { ...prev, [id]: { ...current, ...patch } }
+    })
+  }
+
+  function updateVariableVariant(id: string, patch: Partial<PickedVariableVariant>) {
+    setPicked((prev) => {
+      const current = prev[id]
+      if (!current || current.kind !== 'variable') return prev
+      return { ...prev, [id]: { ...current, ...patch } }
+    })
+  }
+
+  function setVariableVariant(id: string, variable: boolean) {
+    setPicked((prev) => {
+      const current = prev[id]
+      if (!current) return prev
+      if (variable) {
+        if (current.kind === 'variable') return prev
+        return { ...prev, [id]: { kind: 'variable', weightMin: 100, weightMax: 900 } }
+      }
+      if (current.kind === 'static') return prev
+      return { ...prev, [id]: { kind: 'static', weight: 400, italic: false } }
+    })
   }
 
   function handleUploadPicked(fileList: FileList | null) {
@@ -296,7 +349,8 @@ export function AddCustomFontDialog({
   }
 
   const canInstall =
-    !installing && !uploading && trimmedFamily.length > 0 && !familyTaken && pickedIds.length > 0
+    !installing && !uploading && trimmedFamily.length > 0 && !familyTaken
+    && pickedIds.length > 0 && !hasInvalidVariableRange
 
   return (
     <Dialog
@@ -419,6 +473,7 @@ export function AddCustomFontDialog({
               const checked = variant != null
               const displayName = displayFontFilename(asset.filename)
               const italicInputId = `${assetPreviewFamily(previewFamily, asset.id)}Italic`
+              const variableInputId = `${assetPreviewFamily(previewFamily, asset.id)}Variable`
               const previewStyle = {
                 fontFamily: `"${assetPreviewFamily(previewFamily, asset.id)}", system-ui, sans-serif`,
               } as CSSProperties
@@ -447,22 +502,66 @@ export function AddCustomFontDialog({
                   </label>
                   {checked && variant && (
                     <div className={styles.customFileControls}>
-                      <Select
-                        fieldSize="sm"
-                        options={WEIGHT_OPTIONS}
-                        value={String(variant.weight)}
-                        onChange={(e) => updateVariant(asset.id, { weight: Number(e.target.value) })}
-                        aria-label={`Weight for ${asset.filename}`}
-                      />
-                      <label className={styles.customItalicToggle} htmlFor={italicInputId}>
+                      <label className={styles.customItalicToggle} htmlFor={variableInputId}>
                         <Checkbox
-                          id={italicInputId}
-                          checked={variant.italic}
-                          onCheckedChange={(it) => updateVariant(asset.id, { italic: it })}
-                          aria-label={`Italic for ${asset.filename}`}
+                          id={variableInputId}
+                          checked={variant.kind === 'variable'}
+                          onCheckedChange={(it) => setVariableVariant(asset.id, it)}
+                          aria-label={`Variable font for ${asset.filename}`}
                         />
-                        Italic
+                        Variable font
                       </label>
+                      {variant.kind === 'variable' ? (
+                        <>
+                          <Input
+                            fieldSize="sm"
+                            type="number"
+                            min={1}
+                            max={1000}
+                            step={1}
+                            value={variant.weightMin}
+                            prefix="min"
+                            onChange={(e) => {
+                              const next = e.target.valueAsNumber
+                              if (Number.isFinite(next)) updateVariableVariant(asset.id, { weightMin: next })
+                            }}
+                            aria-label={`Minimum weight for ${asset.filename}`}
+                          />
+                          <Input
+                            fieldSize="sm"
+                            type="number"
+                            min={1}
+                            max={1000}
+                            step={1}
+                            value={variant.weightMax}
+                            prefix="max"
+                            onChange={(e) => {
+                              const next = e.target.valueAsNumber
+                              if (Number.isFinite(next)) updateVariableVariant(asset.id, { weightMax: next })
+                            }}
+                            aria-label={`Maximum weight for ${asset.filename}`}
+                          />
+                        </>
+                      ) : (
+                        <>
+                          <Select
+                            fieldSize="sm"
+                            options={WEIGHT_OPTIONS}
+                            value={String(variant.weight)}
+                            onChange={(e) => updateStaticVariant(asset.id, { weight: Number(e.target.value) })}
+                            aria-label={`Weight for ${asset.filename}`}
+                          />
+                          <label className={styles.customItalicToggle} htmlFor={italicInputId}>
+                            <Checkbox
+                              id={italicInputId}
+                              checked={variant.italic}
+                              onCheckedChange={(it) => updateStaticVariant(asset.id, { italic: it })}
+                              aria-label={`Italic for ${asset.filename}`}
+                            />
+                            Italic
+                          </label>
+                        </>
+                      )}
                     </div>
                   )}
                 </li>
@@ -474,6 +573,11 @@ export function AddCustomFontDialog({
 
       {installError && (
         <p role="alert" className={styles.errorAlert}>{installError}</p>
+      )}
+      {hasInvalidVariableRange && (
+        <p role="alert" className={styles.errorAlert}>
+          The variable font weight minimum must not exceed its maximum.
+        </p>
       )}
     </Dialog>
   )

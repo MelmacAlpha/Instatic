@@ -2,7 +2,7 @@
  * FontsSection — site fonts library shown at the top of the Typography panel.
  *
  * Lists every font installed on the site and lets the user add another from
- * Google's directory (custom uploads are a planned next step). All file work
+ * Google's directory or the media library. All file work
  * happens on the server: this component only mutates `site.settings.fonts`
  * via the `addFont` / `removeFont` zustand actions and triggers the install /
  * uninstall HTTP endpoints.
@@ -20,7 +20,7 @@ import { pushToast } from '@ui/components/Toast'
 import { useEditorStore } from '@site/store/store'
 import { useInstalledFontFaces } from '@site/hooks/useInstalledFontFaces'
 import type { FontEntry, FontToken } from '@core/fonts'
-import { compareVariants } from '@core/fonts'
+import { compareVariants, variableFontWeightRangeForEntry } from '@core/fonts'
 import {
   defaultFontTokenFallback,
   resolveFontTokenStack,
@@ -367,9 +367,12 @@ interface FontRowProps {
 
 function FontRow({ entry, onEdit, onRemove }: FontRowProps) {
   const variants = entry.variants.toSorted(compareVariants)
+  const variableRange = variableFontWeightRangeForEntry(entry)
   const variantSummary =
-    variants.length === 0
-      ? ''
+    variableRange
+      ? `Variable ${variableRange.weightMin}–${variableRange.weightMax}`
+      : variants.length === 0
+        ? ''
       : variants.length <= 3
         ? variants.join(', ')
         : `${variants.slice(0, 3).join(', ')}, +${variants.length - 3}`

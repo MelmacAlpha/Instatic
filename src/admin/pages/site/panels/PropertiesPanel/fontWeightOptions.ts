@@ -6,6 +6,7 @@ import {
   type FontEntry,
   type FontToken,
   type SiteFontsSettings,
+  variableFontWeightRangeForEntry,
 } from '@core/fonts'
 
 export function getFontWeightOptions(
@@ -16,6 +17,14 @@ export function getFontWeightOptions(
   const entry = resolveFontEntryForWeightOptions(fontFamilyValue, fonts)
   const installedWeights = entry ? weightOptionsForEntry(entry) : []
   return installedWeights.length > 0 ? installedWeights : [...fallbackOptions]
+}
+
+export function getVariableFontWeightRange(
+  fontFamilyValue: unknown,
+  fonts: SiteFontsSettings | null | undefined,
+) {
+  const entry = resolveFontEntryForWeightOptions(fontFamilyValue, fonts)
+  return entry ? variableFontWeightRangeForEntry(entry) : undefined
 }
 
 function resolveFontEntryForWeightOptions(
@@ -75,7 +84,7 @@ function weightOptionsForEntry(entry: FontEntry): string[] {
   const weights = new Set<number>()
   const variants = [
     ...entry.variants,
-    ...entry.files.map((file) => file.variant),
+    ...entry.files.flatMap((file) => 'variant' in file ? [file.variant] : []),
   ]
   for (const variant of variants) {
     const parsed = parseVariant(variant)
