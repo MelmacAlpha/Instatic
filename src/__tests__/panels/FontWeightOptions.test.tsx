@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { FontEntry } from '@core/fonts'
 import { StyleSectionsEditor } from '@site/panels/PropertiesPanel/StyleSectionsEditor'
+import { FontWeightControl } from '../../admin/pages/site/property-controls/FontWeightControl'
 import { setEditorPreference } from '@site/preferences/editorPreferences'
 import { useEditorStore } from '@site/store/store'
 import { makeSite } from '../fixtures'
@@ -110,12 +111,72 @@ describe('font weight style options', () => {
     renderFontWeightRow({ fontFamily: 'var(--font-variable)' })
 
     const row = screen.getByTestId('css-property-row-fontWeight')
-    const input = row.querySelector('input[type="number"]')
+    const input = row.querySelector('input[type="text"]')
     expect(input).toBeInstanceOf(HTMLInputElement)
     expect(input?.getAttribute('min')).toBe('100')
     expect(input?.getAttribute('max')).toBe('900')
-    expect(input?.getAttribute('step')).toBe('1')
+    expect(input?.getAttribute('step')).toBe('50')
+    expect(input?.getAttribute('inputmode')).toBe('numeric')
     expect(row.querySelector('select')).toBeNull()
+  })
+})
+
+describe('FontWeightControl editing', () => {
+  it('accepts CSS variable values and commits them when editing ends', () => {
+    const changes: string[] = []
+
+    render(
+      <FontWeightControl
+        propKey="fontWeight"
+        value="400"
+        label="Font weight"
+        min={100}
+        max={900}
+        onChange={(_key, nextValue) => changes.push(nextValue)}
+      />,
+    )
+
+    const input = screen.getByLabelText('Font weight')
+    fireEvent.focus(input)
+    fireEvent.input(input, { target: { value: 'var(--heading-font-weight)' } })
+
+    expect((input as HTMLInputElement).value).toBe('var(--heading-font-weight)')
+    expect(changes).toEqual([])
+
+    fireEvent.blur(input)
+
+    expect(changes).toEqual(['var(--heading-font-weight)'])
+  })
+
+  it('keeps spinner edits local until the input loses focus', () => {
+    const changes: string[] = []
+
+    render(
+      <FontWeightControl
+        propKey="fontWeight"
+        value="400"
+        label="Font weight"
+        min={100}
+        max={900}
+        onChange={(_key, nextValue) => changes.push(nextValue)}
+      />,
+    )
+
+    const input = screen.getByLabelText('Font weight')
+    const increase = document.querySelector('button[aria-label="Increase"]')
+    if (!(increase instanceof HTMLButtonElement)) {
+      throw new Error('Expected a font-weight spinner')
+    }
+
+    fireEvent.click(increase)
+    fireEvent.click(increase)
+
+    expect((input as HTMLInputElement).value).toBe('500')
+    expect(changes).toEqual([])
+
+    fireEvent.blur(input)
+
+    expect(changes).toEqual(['500'])
   })
 })
 

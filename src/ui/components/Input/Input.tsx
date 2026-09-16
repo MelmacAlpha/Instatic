@@ -39,13 +39,14 @@ interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
    */
   trailingSlot?: ReactNode
   /**
-   * When true (default for `type="number"`), the native browser spinner is
+   * When true, the native browser spinner is
    * hidden and a pair of compact `▲ / ▼` buttons is rendered inside the
    * trailing edge of the input. The buttons inherit the input's `step`,
    * `min`, `max` and dispatch a synthetic `change` event so controlled
    * components stay in sync.
    *
-   * Pass `false` to opt out (e.g. for read-only numeric displays).
+   * It defaults to true for `type="number"`; pass `true` explicitly for a
+   * text input that needs numeric stepping. Pass `false` to opt out.
    */
   numberSpinner?: boolean
   /** React 19: ref is a regular prop on function components. */
@@ -78,8 +79,8 @@ export function Input({
   ...props
 }: InputProps) {
   const isNumber = type === 'number'
-  // Only number inputs get the spinner. Default on for number, off otherwise.
-  const showSpinner = isNumber && (numberSpinner ?? true)
+  // Text inputs can opt in when they need numeric stepping without rejecting CSS values.
+  const showSpinner = numberSpinner ?? isNumber
   // The trailing slot is suppressed for number inputs so it cannot collide
   // with the spinner column (number inputs own that real estate).
   const showTrailingSlot = !isNumber && trailingSlot != null
@@ -95,10 +96,25 @@ export function Input({
   function nudge(delta: 1 | -1) {
     const el = localRef.current
     if (!el || el.disabled || el.readOnly) return
-    if (delta === 1) el.stepUp()
-    else el.stepDown()
-    // stepUp/stepDown do NOT fire input/change events automatically — emit one
-    // so controlled components see the new value.
+
+    if (isNumber) {
+      if (delta === 1) el.stepUp()
+      else el.stepDown()
+    } else {
+      const current = Number(el.value)
+      const step = Number(props.step ?? 1)
+      if (!Number.isFinite(current) || !Number.isFinite(step) || step <= 0) return
+
+      const min = Number(props.min)
+      const max = Number(props.max)
+      const next = current + delta * step
+      const boundedByMin = Number.isFinite(min) ? Math.max(min, next) : next
+      const boundedByMax = Number.isFinite(max) ? Math.min(max, boundedByMin) : boundedByMin
+      el.value = String(boundedByMax)
+    }
+
+    // Programmatic stepping does not fire input/change events automatically —
+    // emit both so controlled components see the new value.
     el.dispatchEvent(new Event('input', { bubbles: true }))
     el.dispatchEvent(new Event('change', { bubbles: true }))
   }
@@ -150,6 +166,7 @@ export function Input({
             tabIndex={-1}
             aria-label="Increase"
             disabled={props.disabled}
+            onMouseDown={(event) => event.preventDefault()}
             onClick={() => nudge(1)}
           >
             <ChevronDown2Icon size={9} className={styles.spinnerIconUp} />
@@ -160,6 +177,7 @@ export function Input({
             tabIndex={-1}
             aria-label="Decrease"
             disabled={props.disabled}
+            onMouseDown={(event) => event.preventDefault()}
             onClick={() => nudge(-1)}
           >
             <ChevronDown2Icon size={9} />
